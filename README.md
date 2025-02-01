@@ -2,7 +2,7 @@
 
 Paso 1, clona el repositorio
 ````bash
-git clone
+git clone https://github.com/asotonet/docker-otel-example.git
 ````
 
 Paso 2, asigna el token de Splunk o11y a la variable de entorno en memoria
