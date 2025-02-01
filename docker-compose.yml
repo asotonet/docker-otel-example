@@ -159,7 +159,7 @@ services:
       - "9411:9411"
       - "9943:9943"
     environment:
-      - SPLUNK_ACCESS_TOKEN=H5GhRVgaU
+      - SPLUNK_ACCESS_TOKEN=$SPLUNK_ACCESS_TOKEN
       - SPLUNK_REALM=us1
     networks:
       - myapp-network
