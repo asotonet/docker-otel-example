@@ -1,0 +1,171 @@
+#version: "3.8"
+services:
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - myapp-network
+
+  order:
+    build: ./order-service
+    ports:
+      - "3001:3001"
+    environment:
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
+      - OTEL_SERVICE_NAME=order-service
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=nodejs,service.version=1.0
+      - NODE_OPTIONS=--require @opentelemetry/auto-instrumentations-node/register
+    depends_on:
+      - mongodb
+      - otel-collector
+    networks:
+      - myapp-network
+
+  payment:
+    build: ./payment-service
+    ports:
+      - "3002:3002"
+    environment:
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
+      - OTEL_SERVICE_NAME=payment-service
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=nodejs,service.version=1.0
+      - NODE_OPTIONS=--require @opentelemetry/auto-instrumentations-node/register
+    depends_on:
+      - mongodb
+      - otel-collector
+    networks:
+      - myapp-network
+
+  product:
+    build: ./product-service
+    ports:
+      - "3003:3003"
+    environment:
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
+      - OTEL_SERVICE_NAME=product-service
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=nodejs,service.version=1.0
+      - NODE_OPTIONS=--require @opentelemetry/auto-instrumentations-node/register
+    depends_on:
+      - mongodb
+      - otel-collector
+    networks:
+      - myapp-network
+
+  user:
+    build: ./user-service
+    ports:
+      - "3004:3004"
+    environment:
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
+      - OTEL_SERVICE_NAME=user-service
+      - NODE_OPTIONS=--require @opentelemetry/auto-instrumentations-node/register
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=nodejs,service.version=1.0
+    depends_on:
+      - mongodb
+      - otel-collector
+    networks:
+      - myapp-network
+
+  traffic-generator:
+    build:
+      context: ./traffic-generator
+      dockerfile: Dockerfile
+    container_name: traffic-generator
+    depends_on:
+      - user
+      - product
+      - order
+      - payment
+    environment:
+      - USER_SERVICE_URL=http://user:3004
+      - PRODUCT_SERVICE_URL=http://product:3003
+      - ORDER_SERVICE_URL=http://order:3001
+      - PAYMENT_SERVICE_URL=http://payment:3002
+    networks:
+      - myapp-network
+
+#  requestor-api-client:
+#    build:
+#      context: ./API-Client
+#      dockerfile: Dockerfile
+#    container_name: requestor-api-client
+#    depends_on:
+#      - user
+#    restart: unless-stopped
+#    networks:
+#      - myapp-network
+
+  python-app:
+    build:
+      context: .
+      dockerfile: ./python/Dockerfile
+#    image: python:3.9
+    container_name: python-app
+    working_dir: /app/automatic
+    volumes:
+      - ./python/automatic:/app/automatic
+    ports:
+      - "5000:5000"
+    command: >
+      sh -c "pip install --upgrade pip && pip install -r requirements.txt && splunk-py-trace-bootstrap && splunk-py-trace flask run --host=0.0.0.0"
+    environment:
+      - OTEL_SERVICE_NAME=python-lab
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=python-lab,service.version=1.0
+    depends_on:
+      - otel-collector
+    networks:
+      - myapp-network
+
+  requestor-for-pythonapp:
+    image: curlimages/curl:latest  # Usa la imagen con curl para hacer solicitudes HTTP
+    container_name: requestor-for-pythonapp
+    depends_on:
+      - python-app
+      - otel-collector
+    entrypoint: /bin/sh -c "while true; do curl -s http://python-app:5000/; curl -s http://python-app:5000/somepath; curl -s http://python-app:5000/anotherpath; sleep 5; done"
+    networks:
+      - myapp-network
+
+  otel-collector:
+    image: quay.io/signalfx/splunk-otel-collector:latest
+    container_name: otel-collector
+    command: ["--config", "/etc/otel-col-config.yml"]
+    volumes:
+      - ./otel-col-config.yml:/etc/otel-col-config.yml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+      - "2255:2255"
+      - "13133:13133"
+      - "14250:14250"
+      - "14268:14268"
+#      - "4317:4317"
+      - "6060:6060"
+#      - "8888:8888"
+      - "9080:9080"
+      - "9411:9411"
+      - "9943:9943"
+    environment:
+      - SPLUNK_ACCESS_TOKEN=H5GhRVgaUX7JBD6LnRbnrw
+      - SPLUNK_REALM=us1
+    networks:
+      - myapp-network
+
+networks:
+  myapp-network:
+
+volumes:
+  mongo-data:
